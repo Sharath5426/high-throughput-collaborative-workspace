@@ -2,10 +2,12 @@ import { Router } from 'express';
 import { createTask, updateTask, moveTask, deleteTask } from '../controllers/task.controller';
 import { authenticate } from '../middleware/auth.middleware';
 import { authorizeWorkspaceAccess } from '../middleware/workspace.middleware';
+import { handleIdempotency } from '../middleware/idempotency.middleware';
 
 const router = Router();
 
 router.use(authenticate);
+router.use(handleIdempotency());
 
 router.post('/', createTask);
 router.put('/:id', authorizeWorkspaceAccess('task', 'id'), updateTask);

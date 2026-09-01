@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express';
 import { prisma } from '../utils/prisma';
 import { createBoardSchema } from '../validators';
 import { AuthenticatedRequest } from '../middleware/auth.middleware';
+import { invalidateBoardCache, invalidateProjectCache, readThroughCache } from '../utils/redis';
 
 export async function createBoard(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -33,6 +34,9 @@ export async function createBoard(req: AuthenticatedRequest, res: Response, next
       },
     });
 
+    await invalidateBoardCache(board.id);
+    await invalidateProjectCache(data.projectId);
+
     res.status(201).json({
       success: true,
       data: createdBoard,
@@ -46,27 +50,35 @@ export async function getBoardById(req: AuthenticatedRequest, res: Response, nex
   try {
     const { id } = req.params;
 
-    const board = await prisma.board.findUnique({
-      where: { id },
-      include: {
-        project: {
-          select: { id: true, name: true, workspaceId: true },
-        },
-        columns: {
-          orderBy: { position: 'asc' },
+    const board = await readThroughCache(
+      `board:${id}`,
+      120,
+      async () => {
+        const result = await prisma.board.findUnique({
+          where: { id },
           include: {
-            tasks: {
+            project: {
+              select: { id: true, name: true, workspaceId: true },
+            },
+            columns: {
               orderBy: { position: 'asc' },
               include: {
-                assignee: {
-                  select: { id: true, name: true, email: true, avatarUrl: true },
+                tasks: {
+                  orderBy: { position: 'asc' },
+                  include: {
+                    assignee: {
+                      select: { id: true, name: true, email: true, avatarUrl: true },
+                    },
+                  },
                 },
               },
             },
           },
-        },
-      },
-    });
+        });
+
+        return result;
+      }
+    );
 
     if (!board) {
       res.status(404).json({ success: false, error: 'Board not found' });

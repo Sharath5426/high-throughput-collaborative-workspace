@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express';
 import { prisma } from '../utils/prisma';
 import { createWorkspaceSchema, addMemberSchema } from '../validators';
 import { AuthenticatedRequest } from '../middleware/auth.middleware';
+import { invalidateWorkspaceCache, readThroughCache } from '../utils/redis';
 
 export async function createWorkspace(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -30,6 +31,8 @@ export async function createWorkspace(req: AuthenticatedRequest, res: Response, 
         },
       },
     });
+
+    await invalidateWorkspaceCache(workspace.id);
 
     // Create default initial project and board
     const project = await prisma.project.create({
@@ -68,27 +71,33 @@ export async function getUserWorkspaces(req: AuthenticatedRequest, res: Response
   try {
     const userId = req.user!.userId;
 
-    const memberships = await prisma.workspaceMember.findMany({
-      where: { userId },
-      include: {
-        workspace: {
+    const workspaces = await readThroughCache(
+      `workspace:list:${userId}`,
+      120,
+      async () => {
+        const memberships = await prisma.workspaceMember.findMany({
+          where: { userId },
           include: {
-            members: {
+            workspace: {
               include: {
-                user: {
-                  select: { id: true, name: true, email: true, avatarUrl: true },
+                members: {
+                  include: {
+                    user: {
+                      select: { id: true, name: true, email: true, avatarUrl: true },
+                    },
+                  },
+                },
+                projects: {
+                  select: { id: true, name: true, description: true },
                 },
               },
             },
-            projects: {
-              select: { id: true, name: true, description: true },
-            },
           },
-        },
-      },
-    });
+        });
 
-    const workspaces = memberships.map((m) => m.workspace);
+        return memberships.map((m) => m.workspace);
+      }
+    );
 
     res.status(200).json({
       success: true,
@@ -103,25 +112,34 @@ export async function getWorkspaceById(req: AuthenticatedRequest, res: Response,
   try {
     const { id } = req.params;
 
-    const workspace = await prisma.workspace.findUnique({
-      where: { id },
-      include: {
-        members: {
+    const workspace = await readThroughCache(
+      `workspace:${id}`,
+      120,
+      async () => {
+        const result = await prisma.workspace.findUnique({
+          where: { id },
           include: {
-            user: {
-              select: { id: true, name: true, email: true, avatarUrl: true },
+            members: {
+              include: {
+                user: {
+                  select: { id: true, name: true, email: true, avatarUrl: true },
+                },
+              },
+            },
+            projects: {
+              include: {
+                boards: {
+                  select: { id: true, name: true, description: true },
+                },
+              },
             },
           },
-        },
-        projects: {
-          include: {
-            boards: {
-              select: { id: true, name: true, description: true },
-            },
-          },
-        },
-      },
-    });
+        });
+
+        if (!result) return null;
+        return result;
+      }
+    );
 
     if (!workspace) {
       res.status(404).json({ success: false, error: 'Workspace not found' });
@@ -177,6 +195,8 @@ export async function addMemberToWorkspace(req: AuthenticatedRequest, res: Respo
         },
       },
     });
+
+    await invalidateWorkspaceCache(workspaceId);
 
     res.status(201).json({
       success: true,

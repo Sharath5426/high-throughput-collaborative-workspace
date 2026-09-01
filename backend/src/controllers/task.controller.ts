@@ -2,21 +2,29 @@ import { Response, NextFunction } from 'express';
 import { prisma } from '../utils/prisma';
 import { createTaskSchema, updateTaskSchema, moveTaskSchema } from '../validators';
 import { AuthenticatedRequest } from '../middleware/auth.middleware';
-import { emitBoardEvent } from '../sockets/socket.handler';
+import { emitBoardEvent, emitUserEvent } from '../sockets/socket.handler';
+import { createActivityRecord } from './activity.controller';
+import { createNotificationRecord } from './notification.controller';
+import { invalidateBoardCache, invalidateProjectCache, invalidateWorkspaceCache } from '../utils/redis';
 
 export async function createTask(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
+    const userId = req.user!.userId;
     const data = createTaskSchema.parse(req.body);
+    const idempotencyKey = (req.headers['x-idempotency-key'] as string) || req.body?.idempotencyKey;
 
     const column = await prisma.column.findUnique({
       where: { id: data.columnId },
-      select: { boardId: true, name: true },
+      include: { board: { include: { project: { select: { workspaceId: true } } } } },
     });
 
     if (!column) {
       res.status(404).json({ success: false, error: 'Destination column not found' });
       return;
     }
+
+    const workspaceId = column.board.project.workspaceId;
+    const boardId = column.boardId;
 
     const highestTask = await prisma.task.findFirst({
       where: { columnId: data.columnId },
@@ -42,12 +50,40 @@ export async function createTask(req: AuthenticatedRequest, res: Response, next:
       },
     });
 
-    // Broadcast Socket.IO event to room
-    emitBoardEvent(column.boardId, 'task:created', { task, boardId: column.boardId });
+    // Create Audit Activity Log
+    const activity = await createActivityRecord(
+      workspaceId,
+      userId,
+      'TASK_CREATED',
+      { taskId: task.id, title: task.title, column: column.name },
+      column.board.projectId,
+      boardId
+    );
+
+    // Create Notification if task assigned to another user
+    if (task.assigneeId && task.assigneeId !== userId) {
+      const notification = await createNotificationRecord(
+        task.assigneeId,
+        'TASK_ASSIGNED',
+        'New Task Assigned',
+        `You were assigned to task "${task.title}"`,
+        `/dashboard`
+      );
+      if (notification) emitUserEvent(task.assigneeId, 'notification:new', notification);
+    }
+
+    await invalidateBoardCache(boardId);
+    await invalidateProjectCache(column.board.projectId);
+    await invalidateWorkspaceCache(workspaceId);
+
+    // Broadcast Socket.IO events
+    emitBoardEvent(boardId, 'task:created', { task, boardId, idempotencyKey });
+    if (activity) emitBoardEvent(boardId, 'activity:new', activity);
 
     res.status(201).json({
       success: true,
       data: task,
+      idempotencyKey,
     });
   } catch (err) {
     next(err);
@@ -56,16 +92,38 @@ export async function createTask(req: AuthenticatedRequest, res: Response, next:
 
 export async function updateTask(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
+    const userId = req.user!.userId;
     const { id } = req.params;
     const data = updateTaskSchema.parse(req.body);
+    const expectedVersion = req.body.version !== undefined ? Number(req.body.version) : undefined;
+    const idempotencyKey = (req.headers['x-idempotency-key'] as string) || req.body?.idempotencyKey;
 
     const existingTask = await prisma.task.findUnique({
       where: { id },
-      include: { column: { select: { boardId: true } } },
+      include: {
+        assignee: { select: { id: true, name: true, email: true, avatarUrl: true } },
+        column: {
+          include: { board: { include: { project: { select: { workspaceId: true } } } } },
+        },
+      },
     });
 
     if (!existingTask) {
       res.status(404).json({ success: false, error: 'Task not found' });
+      return;
+    }
+
+    const boardId = existingTask.column.boardId;
+    const workspaceId = existingTask.column.board.project.workspaceId;
+
+    // Optimistic Concurrency Control (OCC) Check
+    if (expectedVersion !== undefined && existingTask.version !== expectedVersion) {
+      res.status(409).json({
+        success: false,
+        error: 'Conflict detected: Task has been modified by another user',
+        serverTask: existingTask,
+        clientTask: { id, ...data, version: expectedVersion },
+      });
       return;
     }
 
@@ -78,6 +136,7 @@ export async function updateTask(req: AuthenticatedRequest, res: Response, next:
         ...(data.status !== undefined && { status: data.status }),
         ...(data.assigneeId !== undefined && { assigneeId: data.assigneeId }),
         ...(data.dueDate !== undefined && { dueDate: data.dueDate ? new Date(data.dueDate) : null }),
+        version: { increment: 1 },
       },
       include: {
         assignee: {
@@ -86,15 +145,44 @@ export async function updateTask(req: AuthenticatedRequest, res: Response, next:
       },
     });
 
-    // Broadcast Socket.IO update
-    emitBoardEvent(existingTask.column.boardId, 'task:updated', {
+    // Create Audit Activity Log
+    const activity = await createActivityRecord(
+      workspaceId,
+      userId,
+      'TASK_UPDATED',
+      { taskId: updatedTask.id, title: updatedTask.title, version: updatedTask.version },
+      existingTask.column.board.projectId,
+      boardId
+    );
+
+    // Create Notification if assignee changed
+    if (updatedTask.assigneeId && updatedTask.assigneeId !== existingTask.assigneeId && updatedTask.assigneeId !== userId) {
+      const notification = await createNotificationRecord(
+        updatedTask.assigneeId,
+        'TASK_ASSIGNED',
+        'Task Assignment Updated',
+        `You were assigned to task "${updatedTask.title}"`,
+        `/dashboard`
+      );
+      if (notification) emitUserEvent(updatedTask.assigneeId, 'notification:new', notification);
+    }
+
+    await invalidateBoardCache(boardId);
+    await invalidateProjectCache(existingTask.column.board.projectId);
+    await invalidateWorkspaceCache(workspaceId);
+
+    // Broadcast Socket.IO update & activity
+    emitBoardEvent(boardId, 'task:updated', {
       task: updatedTask,
-      boardId: existingTask.column.boardId,
+      boardId,
+      idempotencyKey,
     });
+    if (activity) emitBoardEvent(boardId, 'activity:new', activity);
 
     res.status(200).json({
       success: true,
       data: updatedTask,
+      idempotencyKey,
     });
   } catch (err) {
     next(err);
@@ -103,12 +191,19 @@ export async function updateTask(req: AuthenticatedRequest, res: Response, next:
 
 export async function moveTask(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
+    const userId = req.user!.userId;
     const { id } = req.params;
     const { columnId: newColumnId, position: newPosition } = moveTaskSchema.parse(req.body);
+    const expectedVersion = req.body.version !== undefined ? Number(req.body.version) : undefined;
+    const idempotencyKey = (req.headers['x-idempotency-key'] as string) || req.body?.idempotencyKey;
 
     const task = await prisma.task.findUnique({
       where: { id },
-      include: { column: { select: { boardId: true } } },
+      include: {
+        column: {
+          include: { board: { include: { project: { select: { workspaceId: true } } } } },
+        },
+      },
     });
 
     if (!task) {
@@ -126,14 +221,25 @@ export async function moveTask(req: AuthenticatedRequest, res: Response, next: N
       return;
     }
 
+    // OCC Version Check
+    if (expectedVersion !== undefined && task.version !== expectedVersion) {
+      res.status(409).json({
+        success: false,
+        error: 'Conflict detected: Task has been modified by another user',
+        serverTask: task,
+        clientTask: { id, columnId: newColumnId, position: newPosition, version: expectedVersion },
+      });
+      return;
+    }
+
     const oldColumnId = task.columnId;
     const oldPosition = task.position;
     const boardId = task.column.boardId;
+    const workspaceId = task.column.board.project.workspaceId;
 
-    // Transaction to update position indexes and move task
+    // Transaction to update position indexes, version, and move task
     await prisma.$transaction(async (tx) => {
       if (oldColumnId === newColumnId) {
-        // Reordering within same column
         if (newPosition > oldPosition) {
           await tx.task.updateMany({
             where: {
@@ -152,7 +258,6 @@ export async function moveTask(req: AuthenticatedRequest, res: Response, next: N
           });
         }
       } else {
-        // Moving across different columns
         await tx.task.updateMany({
           where: {
             columnId: oldColumnId,
@@ -176,6 +281,7 @@ export async function moveTask(req: AuthenticatedRequest, res: Response, next: N
           columnId: newColumnId,
           position: newPosition,
           status: destinationColumn.name,
+          version: { increment: 1 },
         },
       });
     });
@@ -189,7 +295,21 @@ export async function moveTask(req: AuthenticatedRequest, res: Response, next: N
       },
     });
 
-    // Broadcast Socket.IO move event
+    // Create Audit Activity Log
+    const activity = await createActivityRecord(
+      workspaceId,
+      userId,
+      'TASK_MOVED',
+      { taskId: id, title: task.title, from: task.status, to: destinationColumn.name },
+      task.column.board.projectId,
+      boardId
+    );
+
+    await invalidateBoardCache(boardId);
+    await invalidateProjectCache(task.column.board.projectId);
+    await invalidateWorkspaceCache(workspaceId);
+
+    // Broadcast Socket.IO move event with idempotencyKey
     emitBoardEvent(boardId, 'task:moved', {
       taskId: id,
       sourceColumnId: oldColumnId,
@@ -197,11 +317,14 @@ export async function moveTask(req: AuthenticatedRequest, res: Response, next: N
       newPosition,
       task: movedTask,
       boardId,
+      idempotencyKey,
     });
+    if (activity) emitBoardEvent(boardId, 'activity:new', activity);
 
     res.status(200).json({
       success: true,
       data: movedTask,
+      idempotencyKey,
     });
   } catch (err) {
     next(err);
@@ -210,11 +333,17 @@ export async function moveTask(req: AuthenticatedRequest, res: Response, next: N
 
 export async function deleteTask(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
+    const userId = req.user!.userId;
     const { id } = req.params;
+    const idempotencyKey = (req.headers['x-idempotency-key'] as string) || req.body?.idempotencyKey;
 
     const task = await prisma.task.findUnique({
       where: { id },
-      include: { column: { select: { boardId: true } } },
+      include: {
+        column: {
+          include: { board: { include: { project: { select: { workspaceId: true } } } } },
+        },
+      },
     });
 
     if (!task) {
@@ -223,21 +352,39 @@ export async function deleteTask(req: AuthenticatedRequest, res: Response, next:
     }
 
     const boardId = task.column.boardId;
+    const workspaceId = task.column.board.project.workspaceId;
 
     await prisma.task.delete({
       where: { id },
     });
+
+    // Create Audit Activity Log
+    const activity = await createActivityRecord(
+      workspaceId,
+      userId,
+      'TASK_DELETED',
+      { taskId: id, title: task.title },
+      task.column.board.projectId,
+      boardId
+    );
+
+    await invalidateBoardCache(boardId);
+    await invalidateProjectCache(task.column.board.projectId);
+    await invalidateWorkspaceCache(workspaceId);
 
     // Broadcast Socket.IO deletion event
     emitBoardEvent(boardId, 'task:deleted', {
       taskId: id,
       columnId: task.columnId,
       boardId,
+      idempotencyKey,
     });
+    if (activity) emitBoardEvent(boardId, 'activity:new', activity);
 
     res.status(200).json({
       success: true,
       message: 'Task deleted successfully',
+      idempotencyKey,
     });
   } catch (err) {
     next(err);

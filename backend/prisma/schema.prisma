@@ -30,19 +30,24 @@ model User {
   updatedAt     DateTime          @updatedAt
   memberships   WorkspaceMember[]
   tasksAssigned Task[]            @relation("TaskAssignee")
+  activities    ActivityLog[]
+  notifications Notification[]
+  canvasElements CanvasElement[]
 
   @@index([email])
 }
 
 model Workspace {
-  id          String            @id @default(uuid())
-  name        String
-  description String?
-  ownerId     String
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
-  members     WorkspaceMember[]
-  projects    Project[]
+  id            String            @id @default(uuid())
+  name          String
+  description   String?
+  ownerId       String
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  members       WorkspaceMember[]
+  projects      Project[]
+  activities    ActivityLog[]
+  canvasElements CanvasElement[]
 
   @@index([ownerId])
 }
@@ -76,14 +81,15 @@ model Project {
 }
 
 model Board {
-  id          String   @id @default(uuid())
-  name        String
-  description String?
-  projectId   String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  columns     Column[]
+  id            String          @id @default(uuid())
+  name          String
+  description   String?
+  projectId     String
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  project       Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  columns       Column[]
+  canvasElements CanvasElement[]
 
   @@index([projectId])
 }
@@ -109,6 +115,7 @@ model Task {
   priority    Priority  @default(MEDIUM)
   status      String
   position    Int
+  version     Int       @default(1)
   dueDate     DateTime?
   assigneeId  String?
   columnId    String
@@ -120,4 +127,70 @@ model Task {
   @@index([columnId])
   @@index([assigneeId])
   @@index([columnId, position])
+}
+
+model IdempotencyKey {
+  key       String   @id
+  response  Json
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+model ActivityLog {
+  id          String    @id @default(uuid())
+  workspaceId String
+  projectId   String?
+  boardId     String?
+  userId      String
+  action      String
+  details     Json?
+  createdAt   DateTime  @default(now())
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([boardId])
+  @@index([userId])
+}
+
+model CanvasElement {
+  id          String   @id @default(uuid())
+  boardId     String
+  workspaceId String
+  createdBy   String
+  type        String
+  x           Float
+  y           Float
+  width       Float
+  height      Float
+  rotation    Float    @default(0)
+  content     String?
+  style       Json?
+  points      Json?
+  version     Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  board       Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  creator     User     @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+
+  @@index([boardId])
+  @@index([workspaceId])
+  @@index([boardId, updatedAt])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  type      String
+  title     String
+  message   String
+  isRead    Boolean  @default(false)
+  linkUrl   String?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, isRead])
 }

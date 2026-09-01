@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express';
 import { prisma } from '../utils/prisma';
 import { createProjectSchema } from '../validators';
 import { AuthenticatedRequest } from '../middleware/auth.middleware';
+import { invalidateProjectCache, invalidateWorkspaceCache, readThroughCache } from '../utils/redis';
 
 export async function createProject(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -14,6 +15,9 @@ export async function createProject(req: AuthenticatedRequest, res: Response, ne
         workspaceId: data.workspaceId,
       },
     });
+
+    await invalidateProjectCache(project.id);
+    await invalidateWorkspaceCache(data.workspaceId);
 
     // Create default board and columns
     const board = await prisma.board.create({
@@ -47,15 +51,21 @@ export async function getProjectsByWorkspace(req: AuthenticatedRequest, res: Res
   try {
     const workspaceId = (req.query.workspaceId || req.params.workspaceId) as string;
 
-    const projects = await prisma.project.findMany({
-      where: { workspaceId },
-      include: {
-        boards: {
-          select: { id: true, name: true, description: true },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    const projects = await readThroughCache(
+      `project:boards:${workspaceId}`,
+      120,
+      async () => {
+        return prisma.project.findMany({
+          where: { workspaceId },
+          include: {
+            boards: {
+              select: { id: true, name: true, description: true },
+            },
+          },
+          orderBy: { createdAt: 'desc' },
+        });
+      }
+    );
 
     res.status(200).json({
       success: true,
@@ -70,18 +80,26 @@ export async function getProjectById(req: AuthenticatedRequest, res: Response, n
   try {
     const { id } = req.params;
 
-    const project = await prisma.project.findUnique({
-      where: { id },
-      include: {
-        boards: {
+    const project = await readThroughCache(
+      `project:${id}`,
+      120,
+      async () => {
+        const result = await prisma.project.findUnique({
+          where: { id },
           include: {
-            columns: {
-              orderBy: { position: 'asc' },
+            boards: {
+              include: {
+                columns: {
+                  orderBy: { position: 'asc' },
+                },
+              },
             },
           },
-        },
-      },
-    });
+        });
+
+        return result;
+      }
+    );
 
     if (!project) {
       res.status(404).json({ success: false, error: 'Project not found' });

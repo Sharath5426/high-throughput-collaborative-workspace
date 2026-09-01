@@ -1,7 +1,8 @@
 import React from 'react';
 import { Draggable } from '@hello-pangea/dnd';
 import { Task } from '../../types';
-import { Clock, User as UserIcon, Trash2, Edit3 } from 'lucide-react';
+import { useBoardStore } from '../../store/boardStore';
+import { Clock, User as UserIcon, Trash2, Edit3, Edit2 } from 'lucide-react';
 
 interface TaskCardProps {
   task: Task;
@@ -19,6 +20,9 @@ const PRIORITY_STYLES: Record<string, { bg: string; text: string; border: string
 
 export function TaskCard({ task, index, onEditTask, onDeleteTask }: TaskCardProps) {
   const priorityStyle = PRIORITY_STYLES[task.priority] || PRIORITY_STYLES.MEDIUM;
+  const { typingUsers } = useBoardStore();
+
+  const typingUser = typingUsers[task.id];
 
   return (
     <Draggable draggableId={task.id} index={index}>
@@ -27,10 +31,20 @@ export function TaskCard({ task, index, onEditTask, onDeleteTask }: TaskCardProp
           ref={provided.innerRef}
           {...provided.draggableProps}
           {...provided.dragHandleProps}
-          className={`group relative p-4 mb-3 rounded-xl bg-slate-900 border border-slate-800/80 hover:border-blue-500/40 transition-all duration-200 shadow-md ${
-            snapshot.isDragging ? 'ring-2 ring-blue-500 shadow-2xl scale-[1.02] z-50 bg-slate-850' : ''
-          }`}
+          className={`group relative p-4 mb-3 rounded-xl bg-slate-900 border transition-all duration-200 shadow-md ${
+            typingUser
+              ? 'border-amber-500/60 ring-2 ring-amber-500/20'
+              : 'border-slate-800/80 hover:border-blue-500/40'
+          } ${snapshot.isDragging ? 'ring-2 ring-blue-500 shadow-2xl scale-[1.02] z-50 bg-slate-850' : ''}`}
         >
+          {/* Active Editing / Typing Banner */}
+          {typingUser && (
+            <div className="mb-2.5 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] font-semibold flex items-center gap-1.5 animate-pulse">
+              <Edit2 className="w-3 h-3 animate-bounce" />
+              <span>{typingUser.userName} is editing...</span>
+            </div>
+          )}
+
           {/* Priority Pill & Quick Actions */}
           <div className="flex items-center justify-between mb-2">
             <span

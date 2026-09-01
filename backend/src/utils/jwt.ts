@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'fallback-jwt-secret-key-change-in-env';
+const JWT_SECRET = process.env.JWT_SECRET || 'development-only-fallback-secret';
 const EXPIRES_IN = '7d';
 
 export interface JwtPayload {

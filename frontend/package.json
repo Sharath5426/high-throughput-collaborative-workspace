@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@hello-pangea/dnd": "^16.6.0",
+    "@sentry/nextjs": "^10.73.0",
     "axios": "^1.7.2",
     "clsx": "^2.1.1",
     "lucide-react": "^0.395.0",

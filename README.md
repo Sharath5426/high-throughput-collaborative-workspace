@@ -1,173 +1,94 @@
-# High-Throughput Collaborative Workspace Dashboard (Phase 1)
+# High-Throughput Collaborative Workspace Dashboard
 
-A real-time, high-performance collaborative project management platform built with Next.js, Express, PostgreSQL, Prisma ORM, and Socket.IO.
+A real-time collaborative workspace platform built with Next.js, Express.js, PostgreSQL, Prisma, Socket.IO, Redis, and Sentry. The repository preserves the Phase 1 baseline and continues the Phase 2 work for optimistic collaboration, conflict-safe updates, live activity, notifications, and the interactive canvas.
 
-## Key Features
+## Stack
 
-- **Authentication & Authorization**: Secure JWT-based registration and login with bcrypt password hashing and workspace RBAC.
-- **Workspace & Project Management**: Multi-workspace support, team membership management, and project hierarchy (`Workspace -> Project -> Board -> Column -> Task`).
-- **Real-Time Drag-and-Drop Kanban Board**: Real-time task status updates, position reordering, assignee management, priority levels (`LOW`, `MEDIUM`, `HIGH`, `URGENT`), and due dates.
-- **Socket.IO Live Synchronization**: Room-scoped WebSocket broadcasts (`board:{id}`) so team members see changes instantly without page refreshes.
-- **SaaS Interface**: Responsive Next.js App Router dashboard with Tailwind CSS, Zustand global state management, loading skeletons, empty states, and toast notifications.
+- Frontend: Next.js App Router, React, Tailwind CSS, Zustand
+- Backend: Node.js, Express.js, TypeScript
+- Database: PostgreSQL via Prisma ORM
+- Real-time: Socket.IO
+- Caching: Redis with graceful fallback behavior
+- Monitoring: Sentry via environment-based configuration
+- Deployment target: Vercel frontend, Render or Railway backend, Neon PostgreSQL
 
----
+## Phase Status
 
-## Tech Stack
+### Phase 1
+- Authentication and RBAC
+- Workspace, project, board, column, and task lifecycle
+- Kanban board UI
+- JWT-based protected APIs
 
-### Frontend
-- **Framework**: Next.js 14/15 (App Router)
-- **UI & Styling**: React 18/19, Tailwind CSS, Lucide Icons
-- **State Management**: Zustand
-- **Drag and Drop**: `@hello-pangea/dnd`
-- **Real-Time Client**: `socket.io-client`
-- **HTTP Client**: `axios`
+### Phase 2A
+- Optimistic UI updates
+- Offline sync queue
+- Background synchronization
+- API idempotency support
+
+### Phase 2B
+- Optimistic concurrency control
+- Conflict resolution handling
+- Presence and typing indicators
+- Activity feed
+- Notifications
+
+### Phase 2C
+- Collaboration canvas persistence
+- Canvas CRUD and board-scoped collaboration
+- Real-time cursor events and shared board activity
+
+## Architecture
+
+The system keeps PostgreSQL as the authoritative database for all durable application state. Redis is used as an optional caching and scaling layer while Socket.IO handles board-room collaboration. Frontend state is managed with Zustand and updates are optimistic with safe fallback and conflict reconciliation.
+
+## Collaboration Features
+
+- Workspace-based collaboration with member management
+- Task CRUD with drag-and-drop positioning
+- Version-aware optimistic concurrency checks
+- Activity feed and notifications
+- Board live presence and typing indicators
+- Canvas for collaborative visual planning
+- Error-safe offline queue synchronization
+- Background synchronization and retry handling
+- Conflict-resolution modal flow for version mismatches
+
+## Environment Setup
 
 ### Backend
-- **Runtime**: Node.js & Express.js (TypeScript)
-- **Database ORM**: Prisma ORM with PostgreSQL
-- **Authentication**: JSON Web Tokens (`jsonwebtoken`) & `bcryptjs`
-- **Real-Time Server**: Socket.IO (`socket.io`)
-- **Validation**: Zod schema validation
+1. Copy backend/.env.example to backend/.env.
+2. Set DATABASE_URL, JWT_SECRET, CLIENT_ORIGIN, and optional REDIS_URL and SENTRY_DSN.
+3. Run:
+   npm install
+   npx prisma db push
+4. Start the server:
+   npm run dev
 
----
+### Frontend
+1. Copy frontend/.env.example to frontend/.env.local.
+2. Set NEXT_PUBLIC_API_URL, NEXT_PUBLIC_SOCKET_URL, and optional NEXT_PUBLIC_SENTRY_DSN.
+3. Run:
+   npm install
+   npm run dev
 
-## Database Architecture (PostgreSQL)
+## Redis and Sentry
 
-The platform requires **PostgreSQL** configured via the `DATABASE_URL` environment variable.
+- Redis is implemented with environment-based connection config and graceful no-op behavior when unavailable.
+- Sentry is initialized only when a DSN is supplied in the environment.
+- No secrets are committed to the repository.
 
-```
-User (1) ───< WorkspaceMember (N) >─── (1) Workspace
-                                              │
-                                              └───< Project (N)
-                                                      │
-                                                      └───< Board (N)
-                                                              │
-                                                              └───< Column (N)
-                                                                      │
-                                                                      └───< Task (N)
-```
+## Performance
 
----
+The local throughput validation measured 20 concurrent task creation requests in 3170 ms, averaging 158.50 ms per request and 6.31 req/sec. See [PERFORMANCE_REPORT.md](PERFORMANCE_REPORT.md) for the complete measured result and limitations.
 
-## Installation & Setup Instructions
+## Deployment
 
-### 1. Repository Setup
+See [DEPLOYMENT.md](DEPLOYMENT.md) for the deployment workflow, environment variables, and manual provider-side steps. The local implementation is verified, but live public deployment remains blocked until the user authenticates to Vercel and Render or Railway and configures the real environment values.
 
-Clone the repository and inspect the two primary application directories:
-- `backend/`: Node.js Express server & Prisma ORM
-- `frontend/`: Next.js frontend application
+## Security
 
----
-
-### 2. Backend Configuration & Startup
-
-```bash
-cd backend
-npm install
-```
-
-Create your local `.env` file from the provided `.env.example`:
-
-```bash
-cp .env.example .env
-```
-
-Edit `backend/.env` to configure your PostgreSQL connection string and JWT secret:
-
-```env
-PORT=5000
-DATABASE_URL="postgresql://<user>:<password>@<host>:5432/<dbname>?sslmode=require"
-JWT_SECRET="your-secure-jwt-secret-key"
-CLIENT_ORIGIN="http://localhost:3000"
-```
-
-Push schema to PostgreSQL database and generate Prisma Client:
-
-```bash
-npx prisma db push
-npx prisma db seed
-```
-
-Start the backend server in development mode:
-
-```bash
-npm run dev
-```
-
-The server will start on `http://localhost:5000`.
-
----
-
-### 3. Frontend Configuration & Startup
-
-Open a second terminal:
-
-```bash
-cd frontend
-npm install
-```
-
-Create your `.env.local` file from `.env.example`:
-
-```bash
-cp .env.example .env.local
-```
-
-Ensure environment variables point to your running backend:
-
-```env
-NEXT_PUBLIC_API_URL="http://localhost:5000/api"
-NEXT_PUBLIC_SOCKET_URL="http://localhost:5000"
-```
-
-Start the frontend development server:
-
-```bash
-npm run dev
-```
-
-Access the application in your browser at `http://localhost:3000`.
-
----
-
-## API & Socket.IO Specification
-
-### Core API Endpoints
-
-- **Auth**:
-  - `POST /api/auth/register` - Create account
-  - `POST /api/auth/login` - Authenticate & receive JWT
-  - `GET /api/auth/me` - Fetch authenticated user profile
-- **Workspaces**:
-  - `POST /api/workspaces` - Create workspace
-  - `GET /api/workspaces` - List user's workspaces
-  - `GET /api/workspaces/:id` - Fetch workspace details
-  - `POST /api/workspaces/:id/members` - Add member by email
-- **Projects**:
-  - `POST /api/projects` - Create project in workspace
-  - `GET /api/projects?workspaceId=:id` - List workspace projects
-- **Boards**:
-  - `POST /api/boards` - Create board in project
-  - `GET /api/boards/:id` - Fetch board with columns & tasks
-- **Tasks**:
-  - `POST /api/tasks` - Create task in column
-  - `PUT /api/tasks/:id` - Edit task details
-  - `PUT /api/tasks/:id/move` - Move task between columns or positions
-  - `DELETE /api/tasks/:id` - Delete task
-
-### Real-Time Socket.IO Events
-
-- **Rooms**: Clients join `board:{boardId}` room upon viewing a board.
-- **Broadcast Events**:
-  - `task:created` - Emitted when a team member creates a task.
-  - `task:updated` - Emitted on task edits (title, priority, assignee, due date).
-  - `task:moved` - Emitted when a task is moved between columns or reordered.
-  - `task:deleted` - Emitted when a task is removed.
-
----
-
-## Security & Best Practices
-
-- All passcodes are hashed with `bcryptjs` (salt rounds: 10).
-- Passwords and secrets are never committed to version control. `.env` and `.env.local` files are ignored by default.
-- REST endpoints are guarded by JWT middleware and workspace authorization checks.
+- Secret values must remain in environment variables only.
+- .env, .env.local, and deployment secrets are not committed to source control.
+- JWT secrets and Sentry DSNs must remain out of source code.
+- The repository does not include production credentials.

@@ -8,10 +8,12 @@ import {
 } from '../controllers/workspace.controller';
 import { authenticate } from '../middleware/auth.middleware';
 import { authorizeWorkspaceAccess } from '../middleware/workspace.middleware';
+import { handleIdempotency } from '../middleware/idempotency.middleware';
 
 const router = Router();
 
 router.use(authenticate);
+router.use(handleIdempotency());
 
 router.post('/', createWorkspace);
 router.get('/', getUserWorkspaces);

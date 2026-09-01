@@ -5,18 +5,26 @@ import { useRouter } from 'next/navigation';
 import { useAuthStore } from '../../store/authStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { useBoardStore } from '../../store/boardStore';
+import { useActivityStore } from '../../store/activityStore';
 import { useSocket } from '../../hooks/useSocket';
+import { useOfflineSync } from '../../hooks/useOfflineSync';
+
 import { Sidebar } from '../../components/layout/Sidebar';
 import { Header } from '../../components/layout/Header';
 import { KanbanBoard } from '../../components/kanban/KanbanBoard';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { Spinner } from '../../components/ui/Spinner';
+import { ToastContainer } from '../../components/ui/Toast';
+import { ActivityFeedDrawer } from '../../components/activity/ActivityFeedDrawer';
+import { NotificationDrawer } from '../../components/notifications/NotificationDrawer';
+import { ConflictResolutionModal } from '../../components/modals/ConflictResolutionModal';
 
 import { TaskModal } from '../../components/modals/TaskModal';
 import { WorkspaceModal } from '../../components/modals/WorkspaceModal';
 import { ProjectModal } from '../../components/modals/ProjectModal';
 import { BoardModal } from '../../components/modals/BoardModal';
 import { MemberModal } from '../../components/modals/MemberModal';
+import { CollaborationCanvas } from '../../components/canvas/CollaborationCanvas';
 
 import { Task } from '../../types';
 import { LayoutGrid, Plus, FolderKanban, Building2 } from 'lucide-react';
@@ -41,10 +49,13 @@ export default function DashboardPage() {
     isLoading: isBoardLoading,
   } = useBoardStore();
 
+  const { fetchActivities, fetchNotifications } = useActivityStore();
+
   // Active board ID
   const activeBoardId = board?.id || (activeProject?.boards && activeProject.boards.length > 0 ? activeProject.boards[0].id : undefined);
 
-  // Subscribe to real-time Socket.IO events for active board
+  // Phase 2A/2B Hooks
+  useOfflineSync();
   useSocket(activeBoardId);
 
   // Modals state
@@ -65,14 +76,18 @@ export default function DashboardPage() {
     }
     fetchProfile();
     fetchWorkspaces();
-  }, [isAuthenticated, router, fetchProfile, fetchWorkspaces]);
+    fetchNotifications();
+  }, [isAuthenticated, router, fetchProfile, fetchWorkspaces, fetchNotifications]);
 
-  // Load Board when active project changes
+  // Load Board & Workspace Activities when active workspace/project changes
   useEffect(() => {
+    if (activeWorkspace) {
+      fetchActivities(activeWorkspace.id);
+    }
     if (activeProject && activeProject.boards && activeProject.boards.length > 0) {
       fetchBoard(activeProject.boards[0].id);
     }
-  }, [activeProject, fetchBoard]);
+  }, [activeWorkspace, activeProject, fetchBoard, fetchActivities]);
 
   const handleOpenCreateTask = (columnId?: string) => {
     setEditingTask(null);
@@ -176,17 +191,29 @@ export default function DashboardPage() {
               />
             </div>
           ) : (
-            <KanbanBoard
-              onAddTask={(colId) => handleOpenCreateTask(colId)}
-              onEditTask={handleOpenEditTask}
-              onDeleteTask={(taskId) => deleteTask(taskId)}
-              onAddColumn={handleAddColumn}
-            />
+            <div className="flex h-full flex-col lg:flex-row">
+              <div className="flex-1 min-w-0">
+                <KanbanBoard
+                  onAddTask={(colId) => handleOpenCreateTask(colId)}
+                  onEditTask={handleOpenEditTask}
+                  onDeleteTask={(taskId) => deleteTask(taskId)}
+                  onAddColumn={handleAddColumn}
+                />
+              </div>
+              <div className="w-full lg:w-[440px] border-t lg:border-t-0 lg:border-l border-slate-800 bg-slate-950/40">
+                <CollaborationCanvas />
+              </div>
+            </div>
           )}
         </main>
       </div>
 
-      {/* Modals */}
+      {/* Phase 2B Drawers & Modals */}
+      <ActivityFeedDrawer />
+      <NotificationDrawer />
+      <ConflictResolutionModal />
+
+      {/* Core Phase 1 Modals & Toasts */}
       <TaskModal
         isOpen={isTaskModalOpen}
         onClose={() => setIsTaskModalOpen(false)}
@@ -210,6 +237,7 @@ export default function DashboardPage() {
         isOpen={isMemberModalOpen}
         onClose={() => setIsMemberModalOpen(false)}
       />
+      <ToastContainer />
     </div>
   );
 }
