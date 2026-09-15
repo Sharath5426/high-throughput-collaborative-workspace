@@ -70,12 +70,15 @@ The app includes retry-safe mutation handling, stale-version conflict recovery, 
 PostgreSQL remains the authoritative data store for durable application data. Prisma handles schema consistency and database synchronization for the current implementation.
 
 ## 19. Deployment Architecture
-The intended deployment model is:
+The actual deployment model is:
 - Frontend on Vercel
-- Backend on Render or Railway
+  https://high-throughput-collaborative-works.vercel.app
+- Backend on Render
+  https://high-throughput-collaborative-workspace.onrender.com
 - PostgreSQL on Neon
-- Optional Redis on a managed provider
-- Optional Sentry monitoring via a real Sentry project
+- Redis on Upstash Redis
+- Real-time on Socket.IO with Redis adapter
+- Monitoring through Sentry environment-based configuration
 
 ## 20. Testing and Verification
 The local implementation has been validated through:
@@ -96,7 +99,22 @@ Local measured result from the project verification run:
 - throughput: 6.31 req/sec
 
 ## 22. Production Deployment
-The repo and code are ready for public deployment, but actual deployment URLs are not claimed because the provider-side dashboard authentication and environment setup remain a manual step outside this environment.
+The Phase 2 application has been deployed and verified in production.
+
+Public frontend:
+https://high-throughput-collaborative-works.vercel.app
+
+Public backend:
+https://high-throughput-collaborative-workspace.onrender.com
+
+Health endpoint:
+https://high-throughput-collaborative-workspace.onrender.com/health
+
+GitHub repository:
+https://github.com/Sharath5426/high-throughput-collaborative-workspace
+
+GitHub Phase 2 branch:
+https://github.com/Sharath5426/high-throughput-collaborative-workspace/tree/phase-2-development
 
 ## 23. Final Outcome
-The codebase implements the required Phase 2 collaboration model, performance support, and production-ready configuration patterns. The remaining production deployment step is provider-side and requires the user to authenticate to Vercel and Render or Railway, create the deployment environments, and configure the real secrets before public URLs can be generated.
+The Phase 2 implementation is publicly deployed and the production functionality has been manually verified. The system is designed to support the target collaborative architecture and scalability objectives, but no production benchmark is claimed beyond the verified live deployment and local measurement data already documented.

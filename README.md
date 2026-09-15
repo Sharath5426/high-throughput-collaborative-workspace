@@ -10,7 +10,7 @@ A real-time collaborative workspace platform built with Next.js, Express.js, Pos
 - Real-time: Socket.IO
 - Caching: Redis with graceful fallback behavior
 - Monitoring: Sentry via environment-based configuration
-- Deployment target: Vercel frontend, Render or Railway backend, Neon PostgreSQL
+- Deployment target: Vercel frontend, Render backend, Neon PostgreSQL
 
 ## Phase Status
 
@@ -84,7 +84,25 @@ The local throughput validation measured 20 concurrent task creation requests in
 
 ## Deployment
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for the deployment workflow, environment variables, and manual provider-side steps. The local implementation is verified, but live public deployment remains blocked until the user authenticates to Vercel and Render or Railway and configures the real environment values.
+See [DEPLOYMENT.md](DEPLOYMENT.md) for the deployment workflow and operations details.
+
+## Production Deployment
+
+The Phase 2 application is publicly deployed and verified on the phase-2-development branch.
+
+Frontend:
+https://high-throughput-collaborative-works.vercel.app
+
+Backend:
+https://high-throughput-collaborative-workspace.onrender.com
+
+Health check:
+https://high-throughput-collaborative-workspace.onrender.com/health
+
+GitHub:
+https://github.com/Sharath5426/high-throughput-collaborative-workspace/tree/phase-2-development
+
+This Phase 2 deployment is running publicly and is actively connected to the current Neon PostgreSQL database and managed Upstash Redis configuration, with Socket.IO enabled in production.
 
 ## Security
 

@@ -35,10 +35,10 @@ Measured from the current local verification run:
 
 ## Redis Behavior
 
-- Redis integration is present in backend/src/utils/redis.ts and is configured via REDIS_URL.
-- Cache reads and invalidations are implemented with safe fallback behavior.
-- When Redis is not available, the application continues using PostgreSQL without failing the request path.
-- No live production Redis validation was completed because no managed Redis URL was configured in this environment.
+- Redis integration exists in the application and is configured for the deployed environment.
+- Managed Redis is configured for the live deployment, and the Socket.IO Redis adapter is enabled in the production backend.
+- Cache reads and invalidations include graceful fallback behavior when Redis is unavailable.
+- No production throughput benchmark is being claimed.
 
 ## Socket.IO Behavior
 
@@ -49,7 +49,7 @@ Measured from the current local verification run:
 ## Observed Bottlenecks
 
 - PostgreSQL remains the authoritative persistence layer and dominates durability for write-heavy workloads.
-- Real-time collaboration is lightweight, but a large number of live board users can still stress the event layer if the backend is not scaled with a Redis adapter in production.
+- Real-time collaboration is lightweight, but board and event load must still be managed with production scaling considerations.
 - Local validation is not representative of production concurrency or network distribution.
 
 ## Optimizations in Place
@@ -63,10 +63,25 @@ Measured from the current local verification run:
 
 ## ARCHITECTURAL CAPABILITY / LIMITATIONS
 
-- The implementation is ready for managed Redis and production-style scaling, but no production-grade throughput numbers are claimed.
+- Redis integration exists, managed Redis is configured, and the Socket.IO Redis adapter is enabled in the production backend.
+- No production throughput benchmark is being claimed.
 - The current measurements are local-only and should not be used as a deployment SLA or latency benchmark.
-- Production performance validation requires a managed Redis instance, a deployed backend, and a realistic traffic profile.
+
+## Production Verification
+
+The deployed application was manually tested for:
+- registration/login
+- dashboard loading
+- task operations
+- real-time synchronization
+- multi-user collaboration
+- optimistic updates
+- conflict resolution
+- activity feed
+- notifications
+- canvas
+- error recovery
 
 ## Conclusion
 
-The measured local performance is valid for the project’s current environment and matches the real verification output captured during testing. Any production benchmark claim must be re-measured after the live deployment environment is configured and the app is running on a provider-managed stack.
+The measured local performance is valid for the project’s current environment and matches the real verification output captured during testing. It remains a local benchmark and is not a production SLA. Production functionality has been verified separately through live manual testing of the deployed application.
